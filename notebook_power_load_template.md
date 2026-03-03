@@ -323,3 +323,150 @@ pred_df.head()
 5. Для объяснимости:
    - для `LinearRegression` показывайте коэффициенты;
    - для `RandomForest` — `feature_importances_`.
+
+---
+
+## Cell 11 — График факта и прогноза (главный для защиты)
+
+```python
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+sns.set_theme(style="whitegrid", context="talk")
+
+plt.figure(figsize=(16, 6))
+plt.plot(pred_df["timestamp"], pred_df["actual_total_kw_t_plus_h"], label="Факт", linewidth=2)
+plt.plot(pred_df["timestamp"], pred_df["pred_total_kw_t_plus_h"], label="Прогноз", linewidth=2, alpha=0.9)
+plt.title("Прогноз суммарной активной мощности на test-периоде")
+plt.xlabel("Время")
+plt.ylabel("Мощность, kW")
+plt.legend()
+plt.tight_layout()
+plt.savefig("fig_01_actual_vs_pred.png", dpi=200)
+plt.show()
+```
+
+---
+
+## Cell 12 — Ошибка во времени и распределение ошибок
+
+```python
+pred_df["error"] = pred_df["actual_total_kw_t_plus_h"] - pred_df["pred_total_kw_t_plus_h"]
+
+fig, axes = plt.subplots(1, 2, figsize=(18, 5))
+
+axes[0].plot(pred_df["timestamp"], pred_df["error"], color="tab:red")
+axes[0].axhline(0, color="black", linestyle="--", linewidth=1)
+axes[0].set_title("Ошибка прогноза во времени (actual - pred)")
+axes[0].set_xlabel("Время")
+axes[0].set_ylabel("Ошибка, kW")
+
+sns.histplot(pred_df["abs_error"], bins=40, kde=True, ax=axes[1], color="tab:blue")
+axes[1].set_title("Распределение абсолютной ошибки")
+axes[1].set_xlabel("|Ошибка|, kW")
+
+plt.tight_layout()
+plt.savefig("fig_02_error_analysis.png", dpi=200)
+plt.show()
+```
+
+---
+
+## Cell 13 — Сравнение моделей по метрикам
+
+```python
+plot_metrics = test_table[["MAE", "RMSE", "MAPE_%"]].copy()
+plot_metrics.plot(kind="bar", figsize=(10, 5), rot=0)
+plt.title("Сравнение моделей на финальном test")
+plt.ylabel("Значение метрики")
+plt.tight_layout()
+plt.savefig("fig_03_models_metrics.png", dpi=200)
+plt.show()
+```
+
+---
+
+## Cell 14 — Интерпретация моделей
+
+```python
+# 1) Важность признаков RandomForest
+if "RandomForest" in fitted_models:
+    rf = fitted_models["RandomForest"]
+    importances = pd.Series(rf.feature_importances_, index=feature_cols).sort_values(ascending=False).head(20)
+
+    plt.figure(figsize=(10, 7))
+    sns.barplot(x=importances.values, y=importances.index)
+    plt.title("Top-20 важностей признаков (RandomForest)")
+    plt.xlabel("Feature importance")
+    plt.ylabel("Признак")
+    plt.tight_layout()
+    plt.savefig("fig_04_rf_importance.png", dpi=200)
+    plt.show()
+
+# 2) Коэффициенты LinearRegression
+if "LinearRegression" in fitted_models:
+    lr = fitted_models["LinearRegression"]
+    coefs = pd.Series(lr.coef_, index=feature_cols).sort_values()
+
+    top_neg = coefs.head(10)
+    top_pos = coefs.tail(10)
+    coef_plot = pd.concat([top_neg, top_pos])
+
+    plt.figure(figsize=(10, 7))
+    sns.barplot(x=coef_plot.values, y=coef_plot.index)
+    plt.title("Ключевые коэффициенты LinearRegression")
+    plt.xlabel("Коэффициент")
+    plt.ylabel("Признак")
+    plt.tight_layout()
+    plt.savefig("fig_05_lr_coefficients.png", dpi=200)
+    plt.show()
+```
+
+---
+
+## Cell 15 — Тепловая карта ошибок (час × день недели)
+
+```python
+heat_df = pred_df.copy()
+heat_df["hour"] = pd.to_datetime(heat_df["timestamp"]).dt.hour
+heat_df["dow"] = pd.to_datetime(heat_df["timestamp"]).dt.dayofweek
+
+pivot = heat_df.pivot_table(
+    index="dow",
+    columns="hour",
+    values="abs_error",
+    aggfunc="mean"
+)
+
+plt.figure(figsize=(14, 5))
+sns.heatmap(pivot, cmap="YlOrRd", cbar_kws={"label": "Средняя |ошибка|, kW"})
+plt.title("Тепловая карта ошибок: день недели × час")
+plt.xlabel("Час")
+plt.ylabel("День недели (0=Пн)")
+plt.tight_layout()
+plt.savefig("fig_06_error_heatmap.png", dpi=200)
+plt.show()
+```
+
+---
+
+## Cell 16 — Автоматическая таблица для вставки в диплом
+
+```python
+summary = {
+    "best_model": best_model_name,
+    "best_MAE_kW": float(test_table.loc[best_model_name, "MAE"]),
+    "best_RMSE_kW": float(test_table.loc[best_model_name, "RMSE"]),
+    "best_MAPE_percent": float(test_table.loc[best_model_name, "MAPE_%"]),
+    "train_size": int(len(train_df)),
+    "test_size": int(len(test_df)),
+    "horizon_steps": int(HORIZON_STEPS),
+    "n_features": int(len(feature_cols)),
+}
+
+summary_df = pd.DataFrame([summary])
+summary_df.to_csv("table_01_model_summary.csv", index=False)
+summary_df
+```
+
+> После выполнения Cells 11–16 в папке проекта будут готовые PNG-графики и CSV-таблица, которые можно напрямую вставлять в презентацию и диплом.

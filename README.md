@@ -61,3 +61,8 @@ python power_load_regression.py predict \
 - сравнение `LinearRegression` и `RandomForestRegressor`;
 - оценка через `TimeSeriesSplit` + финальный holdout;
 - сохранение модели и метрик.
+
+
+## Материалы для диплома и презентации
+- `diploma_visualization_and_reporting_guide.md` — структура подачи, формулы, список графиков и шаблоны формулировок для текста диплома.
+- `notebook_power_load_template.md` (Cells 11–16) — код для построения графиков и выгрузки таблиц в формате, удобном для вставки в слайды и пояснительную записку.
