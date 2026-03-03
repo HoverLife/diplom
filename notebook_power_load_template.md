@@ -92,6 +92,41 @@ def _make_unique(columns: list[str]) -> list[str]:
     return unique
 
 
+
+
+def _is_generic_measurement_name(name: str) -> bool:
+    s = str(name).strip().lower()
+    if s.startswith("column_"):
+        return True
+    if s.startswith("time_"):
+        suffix = s.split("time_", 1)[1]
+        return suffix.isdigit()
+    return False
+
+
+def _rename_generic_measurement_columns(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    generic_cols = [c for c in out.columns if c != "timestamp" and _is_generic_measurement_name(c)]
+    if not generic_cols:
+        return out
+
+    rename_map = {}
+    if len(generic_cols) % 2 == 0:
+        point_id = 1
+        for idx, col in enumerate(generic_cols, start=1):
+            suffix = "kw" if idx % 2 == 1 else "kvar"
+            rename_map[col] = f"measurement_point_{point_id:02d}_{suffix}"
+            if suffix == "kvar":
+                point_id += 1
+    else:
+        for idx, col in enumerate(generic_cols, start=1):
+            rename_map[col] = f"measurement_feature_{idx:02d}"
+
+    out = out.rename(columns=rename_map)
+    out.columns = _make_unique([str(c) for c in out.columns])
+    return out
+
+
 def read_dataset(path: str) -> pd.DataFrame:
     path = Path(path)
     if not path.exists():
@@ -142,6 +177,9 @@ def read_dataset(path: str) -> pd.DataFrame:
 
     numeric_cols = [c for c in df.columns if c == "timestamp" or pd.api.types.is_numeric_dtype(df[c])]
     df = df[numeric_cols]
+
+    # Переименовываем технические имена в понятные для отчета
+    df = _rename_generic_measurement_columns(df)
 
     if len(df.columns) < 3:
         raise ValueError("После очистки слишком мало признаков. Проверьте формат выгрузки.")
