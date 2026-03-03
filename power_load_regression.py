@@ -26,6 +26,67 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 
 DEFAULT_LAGS = [1, 2, 48]
 
+def _is_unnamed_label(value: str) -> bool:
+    v = str(value).strip().lower()
+    return v.startswith("unnamed:") or v in {"nan", "none", ""}
+
+
+def _flatten_multiindex_columns(columns: pd.MultiIndex) -> List[str]:
+    levels = [pd.Series(columns.get_level_values(i)).astype(str) for i in range(columns.nlevels)]
+
+    # Для merged-ячеек Excel pandas часто создает Unnamed: ... — протягиваем соседние заголовки
+    for i in range(len(levels)):
+        lvl = levels[i].copy()
+        lvl = lvl.mask(lvl.map(_is_unnamed_label))
+        lvl = lvl.ffill().fillna("")
+        levels[i] = lvl
+
+    flat_cols: List[str] = []
+    for col_idx in range(len(columns)):
+        parts = []
+        for lvl in levels:
+            token = str(lvl.iloc[col_idx]).strip()
+            if token and token not in parts:
+                parts.append(token)
+
+        if parts:
+            flat_cols.append(" ".join(parts))
+        else:
+            flat_cols.append(f"column_{col_idx}")
+
+    return flat_cols
+
+
+def _normalize_singlelevel_columns(columns: List[str]) -> List[str]:
+    normalized: List[str] = []
+    prev = ""
+    for idx, col in enumerate(columns):
+        raw = str(col).strip()
+        if _is_unnamed_label(raw):
+            new_name = prev if prev else f"column_{idx}"
+        else:
+            new_name = raw
+        normalized.append(new_name)
+        prev = new_name
+    return normalized
+
+
+
+
+def _make_unique(columns: List[str]) -> List[str]:
+    seen: Dict[str, int] = {}
+    unique: List[str] = []
+    for col in columns:
+        base = col if col else "column"
+        cnt = seen.get(base, 0)
+        if cnt == 0:
+            unique_name = base
+        else:
+            unique_name = f"{base}_{cnt}"
+        seen[base] = cnt + 1
+        unique.append(unique_name)
+    return unique
+
 
 def read_dataset(path: str) -> pd.DataFrame:
     """Читает CSV/Excel и пытается аккуратно нормализовать заголовки."""
@@ -38,10 +99,7 @@ def read_dataset(path: str) -> pd.DataFrame:
         try:
             df = pd.read_excel(file_path, header=[0, 1])
             if isinstance(df.columns, pd.MultiIndex):
-                df.columns = [
-                    " ".join([str(level).strip() for level in col if str(level) != "nan"]).strip()
-                    for col in df.columns
-                ]
+                df.columns = _make_unique(_flatten_multiindex_columns(df.columns))
         except Exception:
             df = pd.read_excel(file_path)
     else:
@@ -50,10 +108,9 @@ def read_dataset(path: str) -> pd.DataFrame:
 
     # Если попался неявный multi-index через автогенерированные колонки
     if isinstance(df.columns, pd.MultiIndex):
-        df.columns = [
-            " ".join([str(level).strip() for level in col if str(level) != "nan"]).strip()
-            for col in df.columns
-        ]
+        df.columns = _make_unique(_flatten_multiindex_columns(df.columns))
+    else:
+        df.columns = _make_unique(_normalize_singlelevel_columns(list(df.columns)))
 
     # Удаляем полностью пустые столбцы/строки
     df = df.dropna(axis=1, how="all").dropna(axis=0, how="all")

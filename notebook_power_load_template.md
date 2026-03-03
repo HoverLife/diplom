@@ -42,6 +42,56 @@ RANDOM_STATE = 42
 ## Cell 3 — Функции загрузки и очистки
 
 ```python
+def _is_unnamed_label(value: str) -> bool:
+    v = str(value).strip().lower()
+    return v.startswith("unnamed:") or v in {"nan", "none", ""}
+
+
+def _flatten_multiindex_columns(columns: pd.MultiIndex) -> list[str]:
+    levels = [pd.Series(columns.get_level_values(i)).astype(str) for i in range(columns.nlevels)]
+
+    # Для merged-ячеек Excel pandas часто генерирует Unnamed: ...
+    for i in range(len(levels)):
+        lvl = levels[i].mask(levels[i].map(_is_unnamed_label))
+        levels[i] = lvl.ffill().fillna("")
+
+    flat_cols = []
+    for col_idx in range(len(columns)):
+        parts = []
+        for lvl in levels:
+            token = str(lvl.iloc[col_idx]).strip()
+            if token and token not in parts:
+                parts.append(token)
+        flat_cols.append(" ".join(parts) if parts else f"column_{col_idx}")
+    return flat_cols
+
+
+def _normalize_singlelevel_columns(columns: list[str]) -> list[str]:
+    normalized = []
+    prev = ""
+    for idx, col in enumerate(columns):
+        raw = str(col).strip()
+        if _is_unnamed_label(raw):
+            name = prev if prev else f"column_{idx}"
+        else:
+            name = raw
+        normalized.append(name)
+        prev = name
+    return normalized
+
+
+def _make_unique(columns: list[str]) -> list[str]:
+    seen = {}
+    unique = []
+    for col in columns:
+        base = col if col else "column"
+        cnt = seen.get(base, 0)
+        unique_name = base if cnt == 0 else f"{base}_{cnt}"
+        seen[base] = cnt + 1
+        unique.append(unique_name)
+    return unique
+
+
 def read_dataset(path: str) -> pd.DataFrame:
     path = Path(path)
     if not path.exists():
@@ -52,10 +102,7 @@ def read_dataset(path: str) -> pd.DataFrame:
         try:
             df = pd.read_excel(path, header=[0, 1])
             if isinstance(df.columns, pd.MultiIndex):
-                df.columns = [
-                    " ".join([str(x).strip() for x in col if str(x) != "nan"]).strip()
-                    for col in df.columns
-                ]
+                df.columns = _make_unique(_flatten_multiindex_columns(df.columns))
         except Exception:
             df = pd.read_excel(path)
     else:
@@ -63,10 +110,9 @@ def read_dataset(path: str) -> pd.DataFrame:
         df = pd.read_csv(path, sep=None, engine="python")
 
     if isinstance(df.columns, pd.MultiIndex):
-        df.columns = [
-            " ".join([str(x).strip() for x in col if str(x) != "nan"]).strip()
-            for col in df.columns
-        ]
+        df.columns = _make_unique(_flatten_multiindex_columns(df.columns))
+    else:
+        df.columns = _make_unique(_normalize_singlelevel_columns(list(df.columns)))
 
     df = df.dropna(axis=1, how="all").dropna(axis=0, how="all")
 
