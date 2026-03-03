@@ -49,3 +49,15 @@ python power_load_regression.py predict \
 - `artifacts/model.joblib` — лучшая модель.
 - `artifacts/metadata.json` — список признаков, метрики, параметры горизонта и лагов.
 - `predictions.csv` — `timestamp`, фактический `total_kw`, target и прогноз.
+
+
+## Готовый шаблон для Jupyter Notebook
+Если вам нужно работать именно в `ipynb`, используйте готовые ячейки из файла:
+- `notebook_power_load_template.md`
+
+Там уже есть:
+- чтение CSV/XLSX;
+- feature engineering для временного ряда;
+- сравнение `LinearRegression` и `RandomForestRegressor`;
+- оценка через `TimeSeriesSplit` + финальный holdout;
+- сохранение модели и метрик.
