@@ -1,85 +1,62 @@
-# diplom
+# PDF Auction Parser (Windows GUI app + CLI)
 
-Скрипт для задачи регрессии: прогноз общего активного энергопотребления `total_kw`
-на горизонте `t + h` (по умолчанию `h=1` шаг = 30 минут).
+Минималистичное приложение для Windows: перетащите один или несколько PDF в окно и получите готовый Excel с лотами.
 
-## Почему не логистическая регрессия
-Логистическая регрессия применяется для **классификации**, а у вас задача **регрессии**
-(непрерывная величина нагрузки в kW). Поэтому в коде используются:
-- `LinearRegression` — максимально объяснимая базовая модель.
-- `RandomForestRegressor` — более гибкая модель, но все еще интерпретируемая на уровне важности признаков.
+## Что умеет
+- Drag & Drop PDF (основной сценарий) + кнопка выбора файлов.
+- Извлечение текста из PDF (PyMuPDF) и OCR fallback (pytesseract) при пустом тексте.
+- Парсинг лотов по строкам в Excel (1 лот = 1 строка).
+- Сохранение картинок из PDF в `output_images/<pdf_name>/` (опционально).
+- Лог ошибок в `parsing_errors.csv`.
+- CLI-режим для автоматизации.
 
-## Что делает пайплайн
-1. Загружает CSV/XLSX.
-2. Нормализует заголовки, парсит timestamp.
-3. Ищет столбцы `kw` и считает:
-   - `total_kw = сумма kw по всем точкам фиксации`.
-4. Добавляет признаки времени (час, день недели, синус/косинус).
-5. Добавляет лаги `total_kw` (`1`, `2`, `48` по умолчанию).
-6. Добавляет rolling-статистики (`4`, `48` по умолчанию).
-7. Формирует target: `total_kw` через `h` шагов вперед.
-8. Делит выборку по времени (без перемешивания).
-9. Обучает 2 модели, сравнивает MAE/RMSE/MAPE и сохраняет лучшую.
-
-## Установка
+## Установка (разработка)
 ```bash
 python -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-## Обучение
+Установите OCR-движок:
+- Windows: установите Tesseract OCR и добавьте его в PATH.
+
+## Запуск GUI
 ```bash
-python power_load_regression.py train \
-  --input data.xlsx \
-  --output-dir artifacts \
-  --horizon-steps 1 \
-  --lags 1 2 48 \
-  --rolling-windows 4 48 \
-  --test-size 0.2
+python app.py
 ```
 
-## Прогноз
+## Сборка полноценного `.exe` для Windows
+### Вариант 1 (автоматически)
+Запустите:
+```bat
+build_windows_exe.bat
+```
+Готовый файл: `dist\AuctionPdfParser.exe`.
+
+### Вариант 2 (вручную)
 ```bash
-python power_load_regression.py predict \
-  --input data.xlsx \
-  --model-dir artifacts \
-  --output predictions.csv
+pip install pyinstaller
+pyinstaller --onefile --windowed --name AuctionPdfParser app.py
 ```
 
-## Выходные артефакты
-- `artifacts/model.joblib` — лучшая модель.
-- `artifacts/metadata.json` — список признаков, метрики, параметры горизонта и лагов.
-- `predictions.csv` — `timestamp`, фактический `total_kw`, target и прогноз.
+## CLI режим
+```bash
+python app.py --cli C:\path\to\folder -o result.xlsx
+```
 
+Опции:
+- `--force-ocr` — OCR для всех страниц.
+- `--no-save-images` — не извлекать изображения.
+- `--run-tests` — встроенные тесты.
 
-## Готовый шаблон для Jupyter Notebook
-Если вам нужно работать именно в `ipynb`, используйте готовые ячейки из файла:
-- `notebook_power_load_template.md`
+## Результаты
+- `result.xlsx` — таблица по лотам.
+- `parsing_errors.csv` — ошибки парсинга.
+- `output_images/...` — извлечённые изображения.
 
-Там уже есть:
-- чтение CSV/XLSX;
-- feature engineering для временного ряда;
-- сравнение `LinearRegression` и `RandomForestRegressor`;
-- оценка через `TimeSeriesSplit` + финальный holdout;
-- сохранение модели и метрик.
-
-
-## Материалы для диплома и презентации
-- `diploma_visualization_and_reporting_guide.md` — структура подачи, формулы, список графиков и шаблоны формулировок для текста диплома.
-- `notebook_power_load_template.md` (Cells 11–16) — код для построения графиков и выгрузки таблиц в формате, удобном для вставки в слайды и пояснительную записку.
-
-
-## Почему появляются `Unnamed: ...` в названиях столбцов
-Это происходит из-за merged-ячеек/многоуровневых заголовков в Excel (часто после сводных таблиц).
-`pandas` подставляет технические имена вида `Unnamed: X_level_Y`, если часть ячеек заголовка пустая.
-
-В текущем коде это уже обработано:
-- `Unnamed`-заголовки автоматически нормализуются;
-- названия протягиваются из соседних уровней/предыдущих столбцов;
-- если имя всё равно не восстановилось, применяется понятная схема: `measurement_point_01_kw`, `measurement_point_01_kvar`, ... (или `measurement_feature_01`, если число столбцов нечетное).
-
-- `diploma_speech_full_script.md` — полный готовый текст выступления для защиты: от постановки задачи до выводов и направлений развития.
-
-
-В коде используются обновленные функции `read_dataset_better`, `find_kw_columns_better`, `build_features_better` для более точной интерпретации multi-header и автоматического выделения `kw/kvar`.
+## TODO
+- Нормализация брендов через расширяемый словарь.
+- Дедупликация лотов по `SerialNumber`.
+- Аналитика цен (бакеты, перцентили).
+- Экспорт в CSV + Power BI friendly формат.
+- Визуализации (гистограмма цен, heatmap адресов).
